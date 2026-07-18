@@ -1,58 +1,37 @@
-# osm_split
+# OSM PBF Cropping Tool v0.1
+
+This is a PySide6-based graphical user interface (GUI) tool designed to help developers quickly crop OpenStreetMap `.pbf` data files via an interactive map . The tool features a built-in coordinate correction mechanism, making it highly suitable for extracting accurate regional road network data for the OSRM (Open Source Routing Machine) engine .
 
 ## Disclaimer
-
 本工具仅供学习与技术研究使用。在处理、切割或转换测绘数据时，请务必遵守所在国家和地区的相关测绘法律法规!
-
-
-## Introduction
-
-这是一个基于 `PySide6` 开发的桌面端应用程序，专为地理信息系统（GIS）、定向运动制图以及 OSRM 寻路引擎数据准备而设计。
-
-本工具能够可视化地从海量（GB级）的 OSM PBF 全量地图数据中，高效裁剪出目标矩形区域。内置了强大的国内地图坐标系（GCJ-02 / BD-09）自动纠偏算法，部分解决了使用中国底图选点导致的路网偏移痛点，确保输出的路网绝对对齐 **WGS-84** 国际标准。
 
 ## Features
 
-* **交互式选区**：内置 OSM 原生、高德地图、Esri 卫星图三种底图。
-* **坐标系纠偏**：在使用高德等国内底图选点时，程序会自动将带偏移的 GCJ-02 坐标逆向转换为纯净的 WGS-84 坐标，并在前端双向对照显示，确保生成的寻路网格分毫不差。
-* **极速切割**：底层调用纯 C 编写的 `osmconvert`，并默认开启 `--complete-ways` 参数，保证跨越切割边界的道路拓扑结构完整。
-* **简化操作**：
-    * 支持 `.osm.pbf` 文件直接拖拽载入。
-    * 自动防呆纠正：无论用户点选顺序如何，自动重排左下角(Min)与右上角(Max)坐标。
-    * 一键清除坐标与地图选区。
-* **系统配置固化**：地图源偏好、默认输出路径、GPU 硬件加速及沙盒模式开关自动保存至 `setting.json`。
+* **Interactive Map Selection**: Integrates a Leaflet web map, allowing users to quickly set the crop rectangle's starting point (bottom-left) and ending point (top-right) using the right-click menu .
+* **Multiple Map Sources**: Supports three base map sources: OpenStreetMap (WGS84), Gaode Map (GCJ02), and Esri Satellite (WGS84) .
+* **Automatic Coordinate Correction**: When selecting points on a GCJ02 base map (e.g., Gaode), the system automatically converts the GCJ02 coordinates to the standard WGS84 coordinates required by OSRM .
+* **Fail-Safe Coordinate Sorting**: Automatically compares the longitude and latitude of the start and end points . Regardless of the selection order, it rearranges them into a valid bottom-left/top-right diagonal bounding box .
+* **Quick Import**: Supports drag-and-drop functionality to instantly load `.osm.pbf` data files into the main window .
+* **Built-in Coordinate Converter**: Provides a standalone dialog tool for mutual conversions between WGS84, GCJ02, and BD09 coordinate systems .
+* **Asynchronous Processing**: Cropping tasks run in an independent background thread using `QThread`, executing external command-line tools and printing logs in real-time without freezing the main UI .
 
+## Requirements
 
-## core
+* Python 3.x
+* Core dependency: `PySide6` 
+* External command-line tool: `osmconvert.exe` (Must be added to system environment variables or placed in the same directory as the program) 
 
-国内地图（如高德、百度）为了地理信息安全，对真实经纬度进行了非线性加密。内置了较为完整的正向与逆向数学解析模型，确保切割坐标的精确。
+## Configuration `setting.json`
 
-### WGS-84 $\mapsto$ GCJ-02 (正向加密)
-高德/腾讯地图使用的火星坐标系，是基于 Krasovsky 1940 椭球体的非线性微扰变换：
-* **生成高频微扰场**：基于多项式与傅里叶级数变体，生成包含高频三角函数噪声的微扰量 $(\delta\lambda, \delta\phi)$。
-* **椭球体几何投影**：计算子午圈曲率半径 $M$ 与卯酉圈曲率半径 $N$：
-  $$M = \frac{a(1 - e^2)}{(1 - e^2 \sin^2 \phi_W)^{3/2}}, \quad N = \frac{a}{\sqrt{1 - e^2 \sin^2 \phi_W}}$$
-* **角分量映射**：将物理偏移转换为弧度/角度偏移量，叠加至原坐标。
+The program automatically reads the `setting.json` file in the current directory upon startup . Supported configuration parameters include:
+* `map_source`: The default base map loaded at startup .
+* `output_dir`: The default output directory for cropped files .
+* `enable_gpu`: Flag to enable GPU hardware acceleration .
+* `enable_sandbox`: Flag to enable sandbox security mode .
 
-### GCJ-02 $\mapsto$ WGS-84 (工具核心：数值逼近解密)
-因加密映射包含超越方程，解析逆映射严格不存在。因此采用了**一阶线性迭代逼近算法**：
-$$P_{WGS} \approx 2P_{GCJ} - T_{Forward}(P_{GCJ})$$
-该算法的绝对误差 $\epsilon < 10^{-5}$ 度（约 0.5 米内），完美满足商业寻路引擎（如 OSRM）的拓扑精度需求。
+## Usage Guide
 
-### GCJ-02 $\mapsto$ BD-09 (百度极坐标微扰)
-百度地图在 GCJ-02 基础上进行了二次极坐标加密。引入常数 $C = \pi \cdot \frac{3000}{180}$，在极径与极角上叠加高频微扰：
-$$r' = r + 2 \times 10^{-5} \sin(\phi_G \cdot C), \quad \theta' = \theta + 3 \times 10^{-6} \cos(\lambda_G \cdot C)$$
-*附：本工具菜单栏内置了 `WGS-84 <-> GCJ-02 <-> BD-09` 坐标系人工互转计算器，供测试与验算使用。*
-
-## Prerequisites
-
-本项目底层依赖 osmconvert 进行高效的文件流处理。请前往 OSM Wiki - osmconvert 下载 Windows 版本的 osmconvert.exe，并将其放置在与 main.py 相同的根目录下。
-
-本项目基于 Python 3 开发，需要以下依赖库：
-
-```bash
-# 安装 PySide6 核心 GUI 与 内置 Chromium 浏览器引擎
-pip install PySide6==6.8.0.2
-pip install PySide6-WebEngine==6.8.0.2
-
-
+1. **Import File**: Click the "Browse" button or drag a `.pbf` file directly into the "Source File" input field .
+2. **Select Area**: Locate the target area on the right-side map, right-click, and select "Crop Start Point" and "Crop End Point" .
+3. **Execute Crop**: Verify the coordinate parameters on the left panel and click the "Crop and Export" button .
+4. **View Results**: Cropping logs will be output in real-time in the bottom-left text box. The finished file will be saved to your configured output directory .

@@ -1,0 +1,6 @@
+{
+    "map_source": "高德地图 (GCJ02)",
+    "output_dir": "D:\\python_work\\osm_split",
+    "enable_gpu": true,
+    "enable_sandbox": true
+}
